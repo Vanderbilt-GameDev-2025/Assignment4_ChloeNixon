@@ -1,0 +1,119 @@
+[gd_scene load_steps=10 format=3 uid="uid://0udhomvune5r"]
+
+[ext_resource type="Script" path="res://Scripts/compute_node.gd" id="1_1sp1i"]
+[ext_resource type="Script" path="res://Scenes/compute_mesh.gd" id="2_2el7x"]
+
+[sub_resource type="Shader" id="Shader_homld"]
+code = "shader_type spatial;
+render_mode diffuse_toon, specular_toon;
+
+uniform sampler2D noise;
+uniform sampler2D normalmap;
+
+uniform float height_scale = 1;
+varying vec2 tex_position;
+uniform float water_calmness = 10.0;
+uniform float outline_thickness = 0.5;
+
+const int SHADING_STEPS = 4;
+
+float wave(vec2 position){
+  position += texture(noise, position / water_calmness).x * 2.0 - 1.0;
+  vec2 wv = 1.0 - abs(sin(position));
+  return pow(1.0 - pow(wv.x * wv.y, 0.65), 4.0);
+}
+
+float water_height(vec2 position, float time) {
+	//number all d is multiplied by, amp, must =1 like so
+	float d = wave((position + (time / 2.0)) * 0.4) * 0.3;
+  	return d;
+}
+
+vec3 toon_lighting(vec3 normal, vec3 light_dir, vec3 light_color) {
+	float intensity = max(dot(normal, light_dir), 0.0);
+	intensity = floor(intensity * float(SHADING_STEPS)) / float(SHADING_STEPS); // Quantized shading
+	return light_color * intensity;
+}
+
+void vertex() {
+	// Called for every vertex the material is visible on.
+	VERTEX += NORMAL * outline_thickness;
+	vec2 pos = VERTEX.xz;
+ 	float height = water_height(pos, TIME);
+	VERTEX.y = height;
+	VERTEX.y += height * height_scale;
+}
+
+void fragment() {
+	// Called for every pixel the material is visible on.
+
+	vec3 normal = texture(normalmap, tex_position).xyz * 2.0 - 1.0; // Convert normal map to range [-1,1]
+	normal = normalize(NORMAL); // Ensure proper normal direction
+
+	// Light direction (assuming a simple directional light)
+	//vec3 light_dir = normalize(LIGHT);
+	
+	vec3 light_dir = normalize(vec3(0.5, 0.5, 0.5)); // Directional light
+	vec3 light_color = vec3(1.0); // White light
+	
+	// Compute dot product between normal and light direction
+	float nDotL = clamp(dot(normal, light_dir), 0.0, 1.0);
+	nDotL = smoothstep(0.01, 0.1, nDotL); // Smooth transition for cell shading
+	
+	vec3 toon_shaded = vec3(nDotL);
+
+	float fresnel = sqrt(1.0 - dot(NORMAL, VIEW));
+	ALBEDO = vec3(0.05, 0.4, 0.3) + (0.1 * fresnel);
+	RIM = 0.2;
+	METALLIC = 0.00;
+  	ROUGHNESS = 0.02;
+	NORMAL_MAP = texture(normalmap, tex_position).xyz;
+}
+
+//void light(){
+	//float nDotL = clamp(dot(NORMAL, LIGHT), 0.0, 1.0);
+	//nDotL = smoothstep(0.01, 0.1, nDotL); // Add smoothstep
+	//vec3 result = vec3(nDotL);
+	//DIFFUSE_LIGHT += result;
+//}
+"
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_j4s2g"]
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_wgwv5"]
+noise = SubResource("FastNoiseLite_j4s2g")
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_1eod8"]
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_3r5f0"]
+as_normal_map = true
+noise = SubResource("FastNoiseLite_1eod8")
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_4gie4"]
+render_priority = 0
+shader = SubResource("Shader_homld")
+shader_parameter/height_scale = 1.0
+shader_parameter/water_calmness = 10.0
+shader_parameter/outline_thickness = 0.5
+shader_parameter/noise = SubResource("NoiseTexture2D_wgwv5")
+shader_parameter/normalmap = SubResource("NoiseTexture2D_3r5f0")
+
+[sub_resource type="PlaneMesh" id="PlaneMesh_l5k32"]
+material = SubResource("ShaderMaterial_4gie4")
+size = Vector2(10, 10)
+subdivide_width = 32
+subdivide_depth = 32
+
+[node name="ComputeNode" type="Node3D"]
+script = ExtResource("1_1sp1i")
+
+[node name="ComputeMesh" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.331064, 0)
+mesh = SubResource("PlaneMesh_l5k32")
+script = ExtResource("2_2el7x")
+
+[node name="Camera3D" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.0186014, 2.76868, 5.6613)
+
+[node name="OmniLight3D" type="OmniLight3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.916735, 0)
